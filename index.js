@@ -28,11 +28,12 @@ const JSON_BODY_METHODS = new Set(['POST', 'PUT', 'PATCH']);
 
 /* Danh sách bảo vệ mặc định: Tên mô hình thực tế chứa bất kỳ cấu hình nào đều sẽ trúng; Không phân biệt chữ hoa chữ thường */
 const MODEL_PATTERNS = [
-    /* Google Gemini: Các mô hình bị giới hạn prefill chính thức */
+    /* Google Gemini */
     'gemini-3.5-flash-lite',
     'gemini-3.6-flash',
     'gemini-3.7-flash',
     'gemini-3.8-flash',
+    'gemini-4-argon',
 
     /* Anthropic Claude: 4.6 và các mô hình mới hơn */
     'claude-opus-4-6',

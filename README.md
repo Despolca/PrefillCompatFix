@@ -32,6 +32,7 @@ Plugin không có bảng cấu hình trực quan, không cần cấu hình thêm
 - `gemini-3.6-flash`
 - `gemini-3.7-flash`
 - `gemini-3.8-flash`
+- `gemini-4-argon`
 
 ### Anthropic Claude
 
@@ -56,6 +57,10 @@ Vào thư mục `SillyTavern/public/scripts/extensions/third-party/PrefillCompat
 Khi thêm vui lòng chú ý định dạng code, tên mô hình vui lòng điền theo thực tế, chú ý cách viết số và dấu gạch nối.
 
 ## Nhật ký cập nhật
+
+### [v1.1.0] - 2026-10-14
+
+- Bổ sung `gemini-4-argon` vào danh sách model tích hợp.
 
 ### [v1.0.0] - 2026-10-11
 
