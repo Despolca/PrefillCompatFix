@@ -1,32 +1,35 @@
 /* ============================================================
-   Bản vá tương thích Prefill (PrefillCompatFix) — Module logic chính (index.js)
+   Bản Vá Tương Thích Prefill (PrefillCompatFix) — Module logic chính (index.js)
    ============================================================ */
 
-/* 【Chỉ mục khối】 (Theo thứ tự từ trên xuống dưới của file)
-   1. Tham số có thể điều chỉnh & Hằng số    Danh sách mô hình, Nội dung giữ chỗ, Thời điểm cài đặt
-   2. Biến trạng thái                        Trạng thái hook và kết quả phán đoán gần nhất
-   3. Công cụ log                            Tiền tố log và cấp độ thống nhất
-   4. Công cụ cơ bản                         Đối tượng Request, URL, Header, tên mô hình (Hàm thuần túy)
-   5. Trích xuất tên mô hình                 Thu thập ứng viên theo mức độ ưu tiên rõ ràng và trả về nguồn cuối cùng
-   6. Chọn mảng tin nhắn                     Chọn mục tiêu đơn lẻ giữa messages / contents
-   7. Phân tích & Sửa đổi Body               Chỉ phán đoán, thêm user, tạo init đã sửa đổi
-   8. Chặn Fetch Request                     Logic bọc (wrapper) dùng chung cho cửa sổ chính và iframe cùng nguồn
-   9. Chặn XHR Request                       Bọc open/send và phán đoán bổ sung đồng bộ
-   10. Cài đặt Hook                          Cửa sổ chính, iframe cùng nguồn, iframe động (fetch + XHR)
-   11. Giao diện debug                       window.__PrefillCompatFix dùng để test và khắc phục sự cố
-   12. Khởi tạo                              Chờ ST sẵn sàng rồi mới cài đặt
+/* [Mục lục các khối] (Theo thứ tự từ trên xuống dưới của tệp)
+   1. Tham số tùy chỉnh và hằng số      Danh sách model, nội dung giữ chỗ, thời điểm cài đặt
+   2. Cài đặt danh sách model          Lưu trữ, hợp nhất, modal popup và chèn lối tắt của người dùng
+   3. Biến trạng thái                  Trạng thái hook và kết quả phán đoán gần nhất
+   4. Công cụ ghi log                  Chuẩn hóa tiền tố log và cấp độ log
+   5. Công cụ cơ bản                   Các hàm thuần túy cho Request object, URL, Header, tên model
+   6. Trích xuất tên model             Thu thập các ứng viên theo mức độ ưu tiên rõ ràng và trả về nguồn cuối cùng
+   7. Lựa chọn mảng tin nhắn           Lựa chọn mục tiêu đơn lẻ giữa messages / contents
+   8. Phân tích và sửa đổi request body Phán đoán thuần túy, nối thêm user, tạo modified init
+   9. Chặn Request Fetch               Logic đóng gói dùng chung cho cửa sổ chính và iframe cùng nguồn
+   10. Chặn Request XHR                Đóng gói open/send và phán đoán bù đắp đồng bộ
+   11. Cài đặt Hook                    Cửa sổ chính, iframe cùng nguồn, iframe động (fetch + XHR)
+   12. Giao diện Debug                 window.__PrefillCompatFix dùng cho kiểm thử và khắc phục sự cố
+   13. Khởi tạo                        Chờ ST sẵn sàng rồi mới cài đặt
    ============================================================ */
 
-/* ── Tham số có thể điều chỉnh & Hằng số ───────────────────── */
+/* ── Tham số tùy chỉnh và hằng số ───────────────────── */
 
 const PLUGIN_KEY = 'PrefillCompatFix';
+const PLUGIN_DISPLAY_NAME = 'Bản vá tương thích Prefill';
 const ENABLED = true;                  /* Công tắc tổng: Phiên bản hiện tại mặc định bật */
 const DEBUG_LOGS = false;              /* Có xuất log debug chi tiết hay không */
-const PLACEHOLDER_TEXT = ' ';          /* Nội dung tin nhắn thêm vào: Phải là chuỗi khác rỗng */
-const APP_READY_FALLBACK_MS = 1200;    /* Độ trễ cài đặt dự phòng (ms) khi đã bỏ lỡ APP_READY */
+const PLACEHOLDER_TEXT = ' ';          /* Nội dung tin nhắn nối thêm: Bắt buộc phải là chuỗi không rỗng */
+const APP_READY_FALLBACK_MS = 1200;    /* Độ trễ cài đặt dự phòng một lần khi đã bỏ lỡ APP_READY (ms) */
 const JSON_BODY_METHODS = new Set(['POST', 'PUT', 'PATCH']);
 
-/* Danh sách bảo vệ mặc định: Tên mô hình thực tế chứa bất kỳ cấu hình nào đều sẽ trúng; Không phân biệt chữ hoa chữ thường */
+/* Danh sách bảo vệ mặc định: Tên model thực tế chứa bất kỳ mục cấu hình nào sẽ khớp, không phân biệt hoa thường.
+   Modal cài đặt sẽ hợp nhất các bản ghi tùy chỉnh và xóa bỏ trên nền danh sách tích hợp sẵn để ra danh sách hiệu lực cuối cùng */
 const MODEL_PATTERNS = [
     /* Google Gemini */
     'gemini-3.5-flash-lite',
@@ -35,7 +38,7 @@ const MODEL_PATTERNS = [
     'gemini-3.8-flash',
     'gemini-4-argon',
 
-    /* Anthropic Claude: 4.6 và các mô hình mới hơn */
+    /* Anthropic Claude: Bản 4.6 và các model sau đó */
     'claude-opus-4-6',
     'claude-opus-4-7',
     'claude-opus-4-8',
@@ -52,32 +55,468 @@ const MODEL_PATTERNS = [
     'claude-fable-5-1',
 ];
 
+/* ── Cài đặt danh sách model ─────────────────────── */
+
+const MODEL_LIST_INPUT_ID = 'pcf-model-list-input';
+const MODEL_LIST_MAX_LINES = 100;      /* Giới hạn số dòng danh sách, tránh việc dán nguyên đoạn dài làm tràn tệp cài đặt */
+const MODEL_LIST_LINK_ID = 'pcf-model-list-link';
+const MODEL_LIST_LINK_PUSH_ID = 'pcf-model-list-push';
+/* Ký tự vô hình: Ký tự điều khiển + ký tự định dạng zero-width/bidirectional phổ biến; ký tự khoảng trắng được quy về dấu cách thông thường */
+const INVISIBLE_CHAR_RE = /[\u0000-\u0008\u000E-\u001F\u007F-\u009F\u00AD\u034F\u061C\u17B4-\u17B5\u180B-\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u206F\uFEFF\uFFF9-\uFFFB]/g;
+/* Khoảng trắng cần xử lý như dấu cách (xuống dòng và khoảng trắng toàn giác được xử lý riêng trước/sau khi tách) */
+const SPACE_LIKE_RE = /[\t\f\v\u00A0\u1680\u2000-\u200A\u202F\u205F]/g;
+
+/* Đọc bản ghi tùy chỉnh và bản ghi xóa từ cài đặt ST; cấu hình bất thường coi như rỗng */
+function getModelListStored() {
+    const context = getStContext();
+    if (!context || !context.extensionSettings) {
+        return { custom: [], removed: [] };
+    }
+
+    const stored = context.extensionSettings[PLUGIN_KEY];
+    if (!isPlainObject(stored)) {
+        return { custom: [], removed: [] };
+    }
+
+    const pick = (value) => Array.isArray(value)
+        ? value.filter((x) => typeof x === 'string' && x.trim() !== '')
+        : [];
+
+    return { custom: pick(stored.custom), removed: pick(stored.removed) };
+}
+
+/* Danh sách hiệu lực = Danh sách tích hợp sẵn − Bản ghi đã xóa + Tùy chỉnh; lọc trùng không phân biệt hoa thường */
+function getEffectiveModelPatterns() {
+    const { custom, removed } = getModelListStored();
+    const removedKeys = new Set(removed.map(normalizeModelName).filter((x) => x !== ''));
+    const seen = new Set();
+    const result = [];
+
+    for (const pattern of MODEL_PATTERNS) {
+        const key = normalizeModelName(pattern);
+        if (key === '' || seen.has(key) || removedKeys.has(key)) continue;
+        seen.add(key);
+        result.push(pattern);
+    }
+
+    for (const pattern of custom) {
+        const key = normalizeModelName(pattern);
+        if (key === '' || seen.has(key)) continue;
+        seen.add(key);
+        result.push(pattern);
+    }
+
+    return result;
+}
+
+/* Tạo văn bản dùng cho modal cài đặt: Hiển thị danh sách đang có hiệu lực theo dạng mỗi dòng một mục */
+function getModelListText() {
+    return getEffectiveModelPatterns().join('\n');
+}
+
+/* Ghi kết quả đã làm sạch trở lại cài đặt ST; custom = mục không tích hợp sẵn, removed = mục tích hợp sẵn đã bị xóa */
+function saveModelListSettings(lines) {
+    const builtinKeys = new Set(MODEL_PATTERNS.map(normalizeModelName));
+    const custom = [];
+    const removed = [];
+
+    for (const line of lines) {
+        const key = normalizeModelName(line);
+        if (key === '') continue;
+        if (builtinKeys.has(key)) continue;
+        custom.push(line);
+    }
+
+    for (const pattern of MODEL_PATTERNS) {
+        const key = normalizeModelName(pattern);
+        if (!key) continue;
+        if (lines.some((line) => normalizeModelName(line) === key)) continue;
+        removed.push(pattern);
+    }
+
+    const context = getStContext();
+    if (!context || !context.extensionSettings) {
+        return false;
+    }
+
+    context.extensionSettings[PLUGIN_KEY] = { custom, removed };
+    if (typeof context.saveSettingsDebounced === 'function') {
+        context.saveSettingsDebounced();
+    }
+    return true;
+}
+
+/* Làm sạch dữ liệu nhập của người dùng: Trả về { lines, fixes, issues }; khi issues không rỗng cần người dùng xác nhận */
+function normalizeModelListInput(text) {
+    const raw = typeof text === 'string' ? text : '';
+    /* Xuống dòng quy về \n; các khoảng trắng Unicode khác chuyển thành dấu cách thông thường khi làm sạch từng dòng */
+    const normalized = raw
+        .replace(/\r\n?/g, '\n')
+        .replace(/[\u0085\u2028\u2029]/g, '\n');
+    const rawLines = normalized.split('\n');
+
+    /* Thống kê phân loại theo hành động làm sạch thực tế; cùng một dòng có thể tính vào nhiều loại (N biểu thị số mục liên quan) */
+    let blankLines = 0;
+    let trimLines = 0;
+    let collapseLines = 0;
+    let invisibleLines = 0;
+    let fullWidthSpaceLines = 0;
+    const lines = [];
+
+    for (const rawLine of rawLines) {
+        const hadFullWidthSpace = rawLine.includes('\u3000');
+        if (hadFullWidthSpace) fullWidthSpaceLines += 1;
+        const normalizedLine = rawLine.replace(/\u3000/g, ' ').replace(SPACE_LIKE_RE, ' ');
+        const stripped = normalizedLine.replace(INVISIBLE_CHAR_RE, '');
+        const hadInvisible = stripped !== normalizedLine;
+        if (hadInvisible) invisibleLines += 1;
+
+        const line = stripped.trim().replace(/ {2,}/g, ' ');
+        if (line === '') {
+            blankLines += 1;
+            continue;
+        }
+        if (stripped !== stripped.trim()) trimLines += 1;
+        if (/ {2,}/.test(stripped.trim())) collapseLines += 1;
+        lines.push(line);
+    }
+
+    const result = [];
+    const seen = new Set();
+    const issues = [];
+    const fixes = [];
+    let duplicates = 0;
+    let separators = 0;
+    let specialChars = 0;
+
+    for (const line of lines) {
+        if (/[,;:，；：、]/.test(line)) separators += 1;
+        if (/[^\u0000-\u007F]/.test(line)) specialChars += 1;
+
+        const key = line.toLowerCase();
+        if (seen.has(key)) {
+            duplicates += 1;
+            continue;
+        }
+        seen.add(key);
+        result.push(line);
+    }
+
+    if (fullWidthSpaceLines > 0) fixes.push(`Chuyển khoảng trắng toàn giác thành bán giác (${fullWidthSpaceLines})`);
+    if (invisibleLines > 0) fixes.push(`Xóa ký tự vô hình (${invisibleLines})`);
+    if (blankLines > 0) fixes.push(`Xóa dòng trống (${blankLines})`);
+    if (trimLines > 0) fixes.push(`Xóa khoảng trắng ở đầu và cuối (${trimLines})`);
+    if (collapseLines > 0) fixes.push(`Gộp các khoảng trắng liên tiếp trong dòng (${collapseLines})`);
+    if (duplicates > 0) fixes.push(`Xóa các mục trùng lặp (${duplicates})`);
+    if (specialChars > 0) issues.push(`Tồn tại ký tự toàn giác hoặc ký tự đặc biệt khác (${specialChars})`);
+
+    /* Đã xóa khoảng trắng đầu cuối, mục nào sau khi làm sạch vẫn còn khoảng trắng mới tính là khoảng trắng nội bộ */
+    const spaced = result.filter((line) => /\s/.test(line)).length;
+    if (spaced > 0) issues.push(`Chứa khoảng trắng trong dòng, có thể không khớp chính xác (${spaced})`);
+    if (separators > 0) issues.push(`Tồn tại dấu phân cách như dấu phẩy/chấm phẩy, vui lòng xác nhận xem tên model có cần tách ra không (${separators})`);
+
+    return { lines: result, fixes, issues, tooMany: result.length > MODEL_LIST_MAX_LINES };
+}
+
+/* Căn trái danh sách trong popup và chữ của các mục, tránh việc dấu chấm đầu dòng bị lệch khi ST căn giữa mặc định.
+   Chỉ xử lý chính danh sách, tiêu đề và phần giải thích vẫn giữ căn chỉnh mặc định của popup */
+function applyPopupListAlign(list) {
+    list.style.textAlign = 'left';
+    list.querySelectorAll('li').forEach((li) => {
+        li.style.textAlign = 'left';
+    });
+}
+
+/* Nối thêm một nhóm danh sách vào nội dung modal; chỉ căn chỉnh chính danh sách, phần giải thích vẫn giữ căn giữa mặc định */
+function appendPopupList(parent, items) {
+    const list = document.createElement('ul');
+    for (const item of items) {
+        const li = document.createElement('li');
+        li.textContent = item;
+        list.appendChild(li);
+    }
+    parent.appendChild(list);
+    applyPopupListAlign(list);
+}
+
+/* Xây dựng nội dung modal: Tiêu đề, hướng dẫn và ô nhập liệu danh sách có thể điều chỉnh độ cao */
+function buildModelListDialogContent(initialText) {
+    const content = document.createElement('div');
+    content.className = 'flex-container flexFlowColumn height100p';
+
+    const title = document.createElement('h3');
+    title.className = 'margin0 flex-container flexFlowColumn textAlignCenter';
+    title.textContent = PLUGIN_DISPLAY_NAME;
+
+    const area = document.createElement('div');
+    area.className = 'flex1 flex-container flexFlowColumn';
+
+    const hint = document.createElement('h4');
+    hint.className = 'margin0';
+    hint.textContent = 'Danh sách model áp dụng (mỗi dòng một model, lưu để có hiệu lực, không cần làm mới)';
+
+    const textarea = document.createElement('textarea');
+    textarea.id = MODEL_LIST_INPUT_ID;
+    textarea.className = 'text_pole';
+    textarea.placeholder = 'Ví dụ:\ngemini-3.7-flash\ngemini-3.8-flash\ngemini-4-argon';
+    textarea.spellcheck = false;
+    textarea.value = initialText;
+    /* Giữ độ cao mặc định tương đối lớn và khoảng trống phía dưới, cho phép người dùng kéo thả tùy chỉnh */
+    textarea.style.height = '60vh';
+    textarea.style.minHeight = '8em';
+    textarea.style.maxHeight = '75vh';
+
+    area.appendChild(hint);
+    area.appendChild(textarea);
+    content.appendChild(title);
+    content.appendChild(area);
+    return { content, textarea };
+}
+
+/* Xác thực danh sách và cảnh báo cho người dùng khi vượt quá giới hạn, danh sách trống hoặc có sự cố; trả về quyền lưu */
+async function confirmModelListIssues(text) {
+    const context = getStContext();
+    if (!context) return false;
+
+    const info = normalizeModelListInput(text);
+
+    /* Vượt quá giới hạn dòng: Trực tiếp từ chối lưu */
+    if (info.tooMany) {
+        await context.callGenericPopup(
+            'Số dòng vượt quá giới hạn tối đa, vui lòng cắt giảm bớt rồi thử lại.',
+            context.POPUP_TYPE.CONFIRM,
+            '',
+            { okButton: 'Xác nhận', cancelButton: false },
+        );
+        return false;
+    }
+
+    /* Danh sách rỗng tương đương việc tắt bảo vệ toàn bộ model, cần xác nhận riêng trước khi lưu */
+    if (info.lines.length === 0) {
+        const emptyNotice = document.createElement('div');
+        emptyNotice.append('Danh sách model đang trống, ');
+        const emptyStrong = document.createElement('strong');
+        emptyStrong.textContent = 'sẽ không còn tự động sửa lỗi cho bất kỳ model nào nữa';
+        emptyNotice.append(emptyStrong);
+        emptyNotice.append('. Bạn có chắc chắn muốn lưu không?');
+        const confirmed = await context.callGenericPopup(
+            emptyNotice,
+            context.POPUP_TYPE.CONFIRM,
+            '',
+            { okButton: 'Xác nhận', cancelButton: 'Hủy' },
+        );
+        return confirmed === context.POPUP_RESULT.AFFIRMATIVE;
+    }
+
+    const hasFixes = info.fixes.length > 0;
+    const hasIssues = info.issues.length > 0;
+
+    /* Đồng thời có sửa đổi tự động và vấn đề cần xác nhận thì gộp làm một lần xác nhận */
+    if (hasFixes && hasIssues) {
+        const wrap = document.createElement('div');
+        const fixTitle = document.createElement('h4');
+        fixTitle.className = 'margin0';
+        fixTitle.textContent = 'Đã tự động sửa định dạng:';
+        wrap.appendChild(fixTitle);
+        appendPopupList(wrap, info.fixes);
+
+        /* Khối khoảng cách tránh gập margin dưới của danh sách, giữ hai khu vực thông báo tách biệt */
+        const sectionGap = document.createElement('div');
+        sectionGap.dataset.pcfSectionGap = '';
+        sectionGap.style.height = '0.75em';
+        wrap.appendChild(sectionGap);
+
+        const issueTitle = document.createElement('h4');
+        issueTitle.className = 'margin0';
+        issueTitle.textContent = 'Sau khi sửa vẫn phát hiện các vấn đề sau, vui lòng xác nhận có lưu hay không:';
+        wrap.appendChild(issueTitle);
+        appendPopupList(wrap, info.issues);
+
+        const confirmed = await context.callGenericPopup(
+            wrap,
+            context.POPUP_TYPE.CONFIRM,
+            '',
+            { okButton: 'Xác nhận', cancelButton: 'Hủy' },
+        );
+        return confirmed === context.POPUP_RESULT.AFFIRMATIVE;
+    }
+
+    /* Chỉ có sửa đổi tự động thì hiển thị hộp thông tin, không cần xác nhận lại */
+    if (hasFixes) {
+        const fixedWrap = document.createElement('div');
+        const fixedTitle = document.createElement('h4');
+        fixedTitle.className = 'margin0';
+        fixedTitle.textContent = 'Đã tự động sửa định dạng và lưu:';
+        fixedWrap.appendChild(fixedTitle);
+        appendPopupList(fixedWrap, info.fixes);
+        await context.callGenericPopup(fixedWrap, context.POPUP_TYPE.CONFIRM, '', { okButton: 'Xác nhận', cancelButton: false });
+        return true;
+    }
+
+    /* Không có nội dung cần xác nhận thì cho phép lưu trực tiếp */
+    if (!hasIssues) {
+        return true;
+    }
+
+    /* Dùng DOM node để hiển thị text động, tránh tên model bị hiểu nhầm thành mã HTML */
+    const wrap = document.createElement('div');
+    const ask = document.createElement('h4');
+    ask.className = 'margin0';
+    ask.textContent = 'Phát hiện các vấn đề sau, vui lòng xác nhận có lưu hay không:';
+    wrap.appendChild(ask);
+    appendPopupList(wrap, info.issues);
+
+    const confirmed = await context.callGenericPopup(
+        wrap,
+        context.POPUP_TYPE.CONFIRM,
+        '',
+        { okButton: 'Xác nhận', cancelButton: 'Hủy' },
+    );
+    return confirmed === context.POPUP_RESULT.AFFIRMATIVE;
+}
+
+/* Mở modal cài đặt và xử lý lưu, hủy cũng như khôi phục mặc định */
+async function openModelListDialog() {
+    const context = getStContext();
+    if (!context || typeof context.callGenericPopup !== 'function' || !context.POPUP_TYPE) {
+        logWarn('Không thể mở cài đặt danh sách model: Thành phần popup của ST không khả dụng');
+        return;
+    }
+
+    const PopupClass = context.Popup
+        || (window.SillyTavern && window.SillyTavern.libs && window.SillyTavern.libs.Popup);
+    if (typeof PopupClass !== 'function') {
+        logWarn('Không thể mở cài đặt danh sách model: Class Popup của ST không khả dụng');
+        return;
+    }
+
+    const popupType = context.POPUP_TYPE;
+    const resultTypes = context.POPUP_RESULT;
+    /* Nội dung đã lưu; khôi phục về nó sau khi hủy hoặc xác thực thất bại */
+    let savedText = getModelListText();
+    let initialText = savedText;
+
+    while (true) {
+        const parts = buildModelListDialogContent(initialText);
+        /* null: Đóng bình thường; restore: Khôi phục mặc định; cancel: Hủy hoặc từ chối xác nhận */
+        let closingWithResult = null;
+        /* Có đang chờ kiểm tra lưu hay không */
+        let savePending = false;
+
+        const popup = new PopupClass(parts.content, popupType.TEXT, '', {
+            wide: true,
+            large: true,
+            allowVerticalScrolling: true,
+            okButton: false,
+            cancelButton: false,
+            customButtons: [
+                { text: 'Lưu', classes: ['popup-button-ok'], action: () => { savePending = true; popup.completeAffirmative(); } },
+                { text: 'Hủy', classes: ['popup-button-cancel'], result: resultTypes.NEGATIVE, appendAtEnd: true },
+                { text: 'Khôi phục mặc định', action: () => { void handleRestore(); }, appendAtEnd: true },
+            ],
+            onClosing: async (instance) => {
+                /* Xác thực trước khi lưu; không đạt thì giữ popup và giữ nguyên nội dung nhập */
+                if (savePending) {
+                    const ok = await confirmModelListIssues(parts.textarea.value);
+                    if (!ok) {
+                        savePending = false;
+                        return false;
+                    }
+                    closingWithResult = resultTypes.AFFIRMATIVE;
+                }
+                return true;
+            },
+        });
+
+        const handleRestore = async () => {
+            const ctx = getStContext() || context;
+            const confirmed = await ctx.callGenericPopup(
+                'Thao tác này sẽ xóa các mục tùy chỉnh và khôi phục lại danh sách tích hợp sẵn. Bạn có chắc chắn muốn khôi phục không?',
+                popupType.CONFIRM,
+                '',
+                { okButton: 'Xác nhận', cancelButton: 'Hủy' },
+            );
+            if (confirmed !== resultTypes.AFFIRMATIVE) return;
+            closingWithResult = 'restore';
+            await popup.completeCancelled();
+        };
+
+        await popup.show();
+
+        if (closingWithResult === 'restore') {
+            /* Mở lại popup sau khi khôi phục mặc định, chờ người dùng xác nhận lưu */
+            initialText = MODEL_PATTERNS.join('\n');
+            continue;
+        }
+
+        if (closingWithResult === resultTypes.AFFIRMATIVE) {
+            const info = normalizeModelListInput(parts.textarea.value);
+            const saved = saveModelListSettings(info.lines);
+            if (!saved) {
+                logWarn('Lưu danh sách model thất bại: Giao diện cài đặt ST không khả dụng');
+            }
+            savedText = info.lines.join('\n');
+            return;
+        }
+
+        return;
+    }
+}
+
+/* Chèn lối tắt cài đặt vào bên phải mục "Xem API key" trong bảng API.
+   Chỉ chèn phần tử của plugin này, và dùng thanh đẩy độ rộng 0 để duy trì bố cục căn đều hai đầu ban đầu của dòng */
+function installModelListLink() {
+    const existing = document.getElementById(MODEL_LIST_LINK_ID);
+    if (existing && document.body.contains(existing)) return true;
+
+    const viewSecrets = document.getElementById('viewSecrets');
+    if (!viewSecrets || !viewSecrets.parentElement) return false;
+
+    const link = document.createElement('a');
+    link.id = MODEL_LIST_LINK_ID;
+    link.href = 'javascript:void(0);';
+    link.textContent = PLUGIN_DISPLAY_NAME;
+    link.addEventListener('click', () => {
+        openModelListDialog();
+    });
+
+    /* Thanh đẩy dùng margin tự động để tiếp tục đẩy "Xem API key" sang mép phải */
+    if (!document.getElementById(MODEL_LIST_LINK_PUSH_ID)) {
+        const push = document.createElement('span');
+        push.id = MODEL_LIST_LINK_PUSH_ID;
+        push.style.marginLeft = 'auto';
+        viewSecrets.parentElement.insertBefore(push, viewSecrets);
+    }
+
+    viewSecrets.parentElement.insertBefore(link, viewSecrets.nextSibling);
+    return true;
+}
+
 /* ── Biến trạng thái ─────────────────────────── */
 
-/* WeakMap<Window, Function>: Cửa sổ đã cài đặt bọc (wrapper) → Hàm bọc */
+/* Cửa sổ → Bộ đóng gói fetch đã cài đặt */
 const hookedFetchHooks = new WeakMap();
-/* WeakMap<XMLHttpRequest, {method, url}>: Tham số open của instance XHR (Đọc khi send; Ghi đè nếu open lặp lại) */
+/* Thể hiện XHR → Tham số open (đọc khi send, open lặp lại sẽ ghi đè) */
 const xhrOpenMeta = new WeakMap();
-/* WeakMap<Window, {open, send}>: realm (Cửa sổ chính + iframe cùng nguồn) đã cài đặt bọc XHR → Phương thức prototype khi cài đặt,
-   Mục đích giống như hookedFetchHooks: Chống bọc lặp lại trên cùng một realm; Bọc lại khi iframe reload hoặc prototype bị thay thế */
+/* Realm → Phương thức prototype XHR khi cài đặt, dùng phát hiện cài đặt trùng lặp hoặc prototype bị thay thế */
 const hookedXhrProtos = new WeakMap();
-/* WeakSet<Window>: Các cửa sổ đã được đưa vào thống kê, tránh đếm trùng một cửa sổ */
+/* Cửa sổ đã tính vào thống kê */
 const hookedWindows = new WeakSet();
-/* WeakSet<HTMLIFrameElement>: Các iframe đã gắn listener load, tránh bind trùng lặp */
+/* Iframe đã gắn bộ lắng nghe sự kiện load */
 const iframeLoadListenersAttached = new WeakSet();
 
-/* boolean: Hook cửa sổ chính (fetch + XHR) đã được cài đặt chưa */
+/* Hook cửa sổ chính (fetch + XHR) đã cài đặt hay chưa */
 let mainHookInstalled = false;
-/* boolean: Trình quét hook iframe (fetch + XHR) đã được cài đặt chưa */
+/* Trình quét hook iframe (fetch + XHR) đã cài đặt hay chưa */
 let iframeHooksInstalled = false;
-/* number: Số lượng cửa sổ iframe đã được cài đặt hook (dùng để debug) */
+/* Số lượng cửa sổ iframe đã cài đặt hook (dùng cho debug) */
 let iframeHookCount = 0;
-/* object|null: Kết quả phán đoán tóm tắt của request gần nhất */
+/* Kết quả phán đoán tóm tắt của request gần nhất */
 let lastDecision = null;
-/* boolean: Đã xuất thông báo khởi động thành công chưa */
+/* Thông báo khởi động thành công đã xuất ra hay chưa */
 let startupLogged = false;
 
-/* ── Công cụ log ─────────────────────────── */
+/* ── Công cụ ghi log ─────────────────────────── */
 
 function logDebug(message, detail) {
     if (!DEBUG_LOGS) return;
@@ -97,7 +536,7 @@ function logInfo(message, detail) {
     }
 }
 
-/* Thông báo khởi động thành công: Chỉ xuất một lần bất kể trạng thái của DEBUG_LOGS */
+/* Thông báo khởi động thành công: Bất kể công tắc DEBUG_LOGS bật hay tắt đều chỉ xuất một lần */
 function logStartupOnce() {
     if (startupLogged) return;
     startupLogged = true;
@@ -122,12 +561,12 @@ function logError(message, error) {
 
 /* ── Công cụ cơ bản ─────────────────────────── */
 
-/* Kiểm tra xem có phải là đối tượng thông thường không (Loại trừ mảng và null) */
+/* Kiểm tra xem có phải là plain object hay không (không chứa mảng và null) */
 function isPlainObject(value) {
     return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-/* Kiểm tra xem có phải là đối tượng giống Request không: instanceof không đáng tin cậy khi vượt ranh giới realm, sử dụng duck typing */
+/* Kiểm tra xem có phải đối tượng tương tự Request không: Khi qua realm thì instanceof không đáng tin, dùng duck typing */
 function isRequestLike(input) {
     return !!input
         && typeof input === 'object'
@@ -135,19 +574,19 @@ function isRequestLike(input) {
         && typeof input.text === 'function';
 }
 
-/* Lấy chuỗi URL tương ứng với input của fetch */
+/* Lấy chuỗi URL tương ứng với đầu vào fetch */
 function getFetchRequestUrl(input) {
     if (typeof input === 'string') return input;
     if (input && typeof input.url === 'string') return input.url;
     try {
         if (input instanceof URL) return input.toString();
     } catch (error) {
-        /* Đối tượng URL vượt ranh giới realm có thể không thể instanceof trực tiếp, bỏ qua */
+        /* Đối tượng URL xuyên realm có thể không trực tiếp instanceof được, bỏ qua */
     }
     return '';
 }
 
-/* Lấy đối tượng URL của URL request; Trả về null nếu thất bại */
+/* Lấy đối tượng URL của request URL; thất bại trả về null */
 function getRequestUrlObject(requestUrl) {
     if (!requestUrl) return null;
     try {
@@ -157,7 +596,6 @@ function getRequestUrlObject(requestUrl) {
     }
 }
 
-/* Lấy pathname của URL; Trả về chuỗi rỗng nếu thất bại */
 function getRequestPathname(requestUrl) {
     const urlObject = getRequestUrlObject(requestUrl);
     return urlObject ? urlObject.pathname.toLowerCase() : '';
@@ -173,7 +611,6 @@ function getHeaderValue(headers, name) {
     }
 }
 
-/* Lấy method thực sự có hiệu lực của lần fetch này */
 function getEffectiveMethod(input, init) {
     if (init && typeof init.method === 'string' && init.method) {
         return init.method.toUpperCase();
@@ -184,7 +621,6 @@ function getEffectiveMethod(input, init) {
     return 'GET';
 }
 
-/* Lấy Content-Type thực sự có hiệu lực của lần fetch này */
 function getEffectiveContentType(input, init) {
     if (init && init.headers !== undefined && init.headers !== null) {
         return getHeaderValue(init.headers, 'content-type');
@@ -195,14 +631,13 @@ function getEffectiveContentType(input, init) {
     return null;
 }
 
-/* Kiểm tra xem Content-Type có thể được xử lý như văn bản JSON hay không */
+/* Kiểm tra xem Content-Type có thể xử lý dưới dạng văn bản JSON hay không */
 function isJsonContentType(contentType) {
     if (!contentType) return true;
     const lower = String(contentType).toLowerCase();
     return lower.includes('application/json') || lower.includes('+json');
 }
 
-/* Giải mã an toàn phân đoạn URL */
 function safeDecodeURIComponent(value) {
     if (typeof value !== 'string') return '';
     try {
@@ -212,22 +647,20 @@ function safeDecodeURIComponent(value) {
     }
 }
 
-/* Chuẩn hóa tên mô hình */
 function normalizeModelName(value) {
     return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
-/* Chuẩn hóa role của tin nhắn */
 function normalizeRole(value) {
     return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
-/* Trả về mục cấu hình trúng đầu tiên; Trả về chuỗi rỗng nếu không trúng */
+/* Trả về mục cấu hình khớp đầu tiên; không khớp trả về chuỗi rỗng */
 function findMatchedModelPattern(modelName) {
     const normalizedModel = normalizeModelName(modelName);
     if (!normalizedModel) return '';
 
-    for (const pattern of MODEL_PATTERNS) {
+    for (const pattern of getEffectiveModelPatterns()) {
         const normalizedPattern = normalizeModelName(pattern);
         if (!normalizedPattern) continue;
         if (normalizedModel.includes(normalizedPattern)) return normalizedPattern;
@@ -236,9 +669,9 @@ function findMatchedModelPattern(modelName) {
     return '';
 }
 
-/* ── Trích xuất tên mô hình ───────────────────────── */
+/* ── Trích xuất tên model ───────────────────────── */
 
-/* Thu thập các ứng viên mô hình xuất hiện trong request body và URL, duy trì thứ tự ưu tiên */
+/* Thu thập các ứng viên model xuất hiện trong request body và URL, giữ nguyên thứ tự ưu tiên */
 function collectModelCandidates(body, requestUrl) {
     const candidates = [];
 
@@ -267,14 +700,14 @@ function collectModelCandidates(body, requestUrl) {
     return candidates;
 }
 
-/* Lấy tên mô hình cuối cùng được sử dụng, nguồn và tất cả các ứng viên */
+/* Lấy tên model, nguồn và tất cả ứng viên được áp dụng cuối cùng */
 function getModelInfo(body, requestUrl) {
     const candidates = collectModelCandidates(body, requestUrl);
     const primary = candidates.length > 0 ? candidates[0] : null;
     const uniqueValues = new Set(candidates.map(item => normalizeModelName(item.value)));
 
     if (uniqueValues.size > 1) {
-        logWarn('Phát hiện nhiều ứng viên mô hình khác nhau, xử lý theo trường có mức độ ưu tiên cao nhất', candidates);
+        logWarn('Phát hiện nhiều model tiềm năng khác nhau, xử lý theo trường có độ ưu tiên cao nhất', candidates);
     }
 
     const model = primary ? primary.value : '';
@@ -290,14 +723,14 @@ function getModelInfo(body, requestUrl) {
     };
 }
 
-/* ── Chọn mảng tin nhắn ─────────────────────── */
+/* ── Lựa chọn mảng tin nhắn ─────────────────────── */
 
-/* Kiểm tra xem có phải là mảng khác rỗng không */
+/* Kiểm tra xem có phải là mảng không rỗng hay không */
 function hasNonEmptyArray(value) {
     return Array.isArray(value) && value.length > 0;
 }
 
-/* Chọn mảng tin nhắn thực sự cần sửa đổi trong request lần này */
+/* Lựa chọn mảng tin nhắn thực tế cần chỉnh sửa trong request lần này */
 function selectTargetArray(body, requestUrl) {
     const hasMessages = hasNonEmptyArray(body.messages);
     const hasContents = hasNonEmptyArray(body.contents);
@@ -309,7 +742,7 @@ function selectTargetArray(body, requestUrl) {
         return { target: 'contents', reason: '' };
     }
     if (!hasMessages && !hasContents) {
-        return { target: null, reason: 'Không có mảng messages hoặc contents khả dụng trong request body' };
+        return { target: null, reason: 'Trong body của request không có mảng messages hoặc contents khả dụng' };
     }
 
     const pathname = getRequestPathname(requestUrl);
@@ -325,19 +758,19 @@ function selectTargetArray(body, requestUrl) {
         return { target: 'messages', reason: '' };
     }
 
-    return { target: null, reason: 'Cả messages và contents đều tồn tại, không thể phán đoán an toàn mảng thực sự được sử dụng' };
+    return { target: null, reason: 'Cả messages và contents cùng tồn tại, không thể xác định an toàn mảng nào thực sự được sử dụng' };
 }
 
-/* ── Phân tích & Sửa đổi Body ─────────────────── */
+/* ── Phân tích và sửa đổi request body ─────────────────── */
 
-/* Phân tích request body JSON đã parse, chỉ phán đoán, không sửa đổi */
+/* Phân tích request body JSON đã parse, chỉ đưa ra phán đoán, không chỉnh sửa */
 function analyzeParsedBody(body, requestUrl) {
     const modelInfo = getModelInfo(body, requestUrl);
     if (!modelInfo.matched) {
         return {
             ...modelInfo,
             decision: 'not-target-model',
-            reason: 'Mô hình không trúng danh sách bảo vệ',
+            reason: 'Model không khớp với danh sách bảo vệ',
             target: null,
             lastRole: '',
             changed: false,
@@ -348,7 +781,7 @@ function analyzeParsedBody(body, requestUrl) {
     if (!targetInfo.target) {
         return {
             ...modelInfo,
-            decision: targetInfo.reason.includes('không thể phán đoán an toàn') ? 'ambiguous-payload' : 'unsupported-body',
+            decision: targetInfo.reason.includes('không thể xác định an toàn') ? 'ambiguous-payload' : 'unsupported-body',
             reason: targetInfo.reason,
             target: null,
             lastRole: '',
@@ -362,7 +795,7 @@ function analyzeParsedBody(body, requestUrl) {
         return {
             ...modelInfo,
             decision: 'unsupported-body',
-            reason: 'Mục cuối của mảng mục tiêu không phải là đối tượng thông thường có chứa chuỗi role',
+            reason: 'Phần tử cuối của mảng mục tiêu không phải là plain object có role dạng string',
             target: targetInfo.target,
             lastRole: '',
             changed: false,
@@ -374,7 +807,7 @@ function analyzeParsedBody(body, requestUrl) {
         return {
             ...modelInfo,
             decision: 'already-user',
-            reason: 'Mục cuối đã là user',
+            reason: 'Phần tử cuối đã là user',
             target: targetInfo.target,
             lastRole,
             changed: false,
@@ -384,14 +817,14 @@ function analyzeParsedBody(body, requestUrl) {
     return {
         ...modelInfo,
         decision: 'needs-fix',
-        reason: 'Trúng mô hình mục tiêu và mục cuối không phải là user',
+        reason: 'Khớp model mục tiêu và phần tử cuối không phải là user',
         target: targetInfo.target,
         lastRole,
         changed: false,
     };
 }
 
-/* Trả về request body mới sau khi đã thêm tin nhắn user có một dấu cách, không sửa đổi đối tượng truyền vào */
+/* Trả về request body mới sau khi nối thêm tin nhắn user chứa dấu cách đơn, không sửa đổi đối tượng truyền vào */
 function buildFixedBody(body, target) {
     if (target === 'messages') {
         return {
@@ -412,7 +845,7 @@ function buildFixedBody(body, target) {
     };
 }
 
-/* Đọc văn bản request body thực sự có hiệu lực của lần fetch này */
+/* Đọc văn bản request body thực tế có hiệu lực của fetch lần này */
 async function readEffectiveRequestBody(input, init) {
     if (init && Object.prototype.hasOwnProperty.call(init, 'body')) {
         if (typeof init.body === 'string') {
@@ -422,7 +855,7 @@ async function readEffectiveRequestBody(input, init) {
     }
 
     if (!isRequestLike(input)) {
-        return { ok: false, reason: 'Input không phải là Request và init.body không khả dụng' };
+        return { ok: false, reason: 'Đầu vào không phải là Request và init.body không khả dụng' };
     }
 
     try {
@@ -430,11 +863,11 @@ async function readEffectiveRequestBody(input, init) {
         const text = await clonedRequest.text();
         return { ok: true, text, source: 'request.body' };
     } catch (error) {
-        return { ok: false, reason: 'Không thể clone hoặc đọc Request body' };
+        return { ok: false, reason: 'Không thể clone hoặc đọc body của Request' };
     }
 }
 
-/* Tạo fetch init mới bằng văn bản đã sửa đổi, chỉ ghi đè body */
+/* Dùng văn bản sau khi sửa để tạo fetch init mới, chỉ ghi đè trường body */
 function buildModifiedInit(init, bodyText) {
     if (init && typeof init === 'object') {
         return { ...init, body: bodyText };
@@ -442,7 +875,7 @@ function buildModifiedInit(init, bodyText) {
     return { body: bodyText };
 }
 
-/* Phân tích và tạo tham số request đã sửa đổi; Trả về changed:false cho bất kỳ tình huống nào không thể hoàn thành an toàn */
+/* Phân tích và tạo tham số request sau khi chỉnh sửa; bất kỳ trường hợp nào không thể hoàn thành an toàn đều trả về changed:false */
 async function buildModifiedFetchArgs(input, init) {
     const requestUrl = getFetchRequestUrl(input);
     const method = getEffectiveMethod(input, init);
@@ -483,7 +916,7 @@ async function buildModifiedFetchArgs(input, init) {
         return {
             changed: false,
             decision: 'unsupported-body',
-            reason: 'Request body không phải là JSON hợp lệ',
+            reason: 'Body của request không phải là JSON hợp lệ',
             url: requestUrl,
         };
     }
@@ -492,7 +925,7 @@ async function buildModifiedFetchArgs(input, init) {
         return {
             changed: false,
             decision: 'unsupported-body',
-            reason: 'Cấp cao nhất của request body JSON không phải là đối tượng thông thường',
+            reason: 'Tầng cao nhất của JSON request body không phải là plain object',
             url: requestUrl,
         };
     }
@@ -520,7 +953,7 @@ async function buildModifiedFetchArgs(input, init) {
     };
 }
 
-/* Hàm kiểm tra thuần túy dùng cho giao diện debug, không gửi request */
+/* Hàm kiểm tra thuần túy dành cho interface debug, không gửi request đi */
 function inspectRequestBody(bodyOrText, requestUrl) {
     let body;
 
@@ -531,7 +964,7 @@ function inspectRequestBody(bodyOrText, requestUrl) {
             return {
                 changed: false,
                 decision: 'unsupported-body',
-                reason: 'Request body không phải là JSON hợp lệ',
+                reason: 'Body của request không phải là JSON hợp lệ',
                 url: requestUrl || '',
                 body: null,
             };
@@ -552,7 +985,7 @@ function inspectRequestBody(bodyOrText, requestUrl) {
         return {
             changed: false,
             decision: 'unsupported-body',
-            reason: 'Request body không phải là đối tượng hoặc chuỗi JSON',
+            reason: 'Request body không phải là object hoặc chuỗi JSON',
             url: requestUrl || '',
             body: null,
         };
@@ -562,7 +995,7 @@ function inspectRequestBody(bodyOrText, requestUrl) {
         return {
             changed: false,
             decision: 'unsupported-body',
-            reason: 'Cấp cao nhất của request body JSON không phải là đối tượng thông thường',
+            reason: 'Tầng cao nhất của JSON request body không phải là plain object',
             url: requestUrl || '',
             body,
         };
@@ -583,7 +1016,7 @@ function inspectRequestBody(bodyOrText, requestUrl) {
     };
 }
 
-/* Tạo kết quả phán đoán tóm tắt có thể lưu và in an toàn */
+/* Tạo kết quả phán đoán tóm tắt có thể lưu trữ và in ra an toàn */
 function summarizeDecision(plan) {
     return {
         timestamp: Date.now(),
@@ -603,31 +1036,31 @@ function summarizeDecision(plan) {
     };
 }
 
-/* Ghi lại và in kết quả phán đoán gần nhất */
+/* Ghi lại và in ra kết quả phán đoán gần nhất */
 function recordDecision(plan) {
     const summary = summarizeDecision(plan);
     lastDecision = summary;
 
     if (summary.decision === 'fixed') {
-        logInfo('Đã bổ sung tin nhắn user vào cuối', summary);
+        logInfo('Đã bổ sung tin nhắn user ở cuối', summary);
         return;
     }
     if (summary.decision === 'modification-failed') {
-        logError('Quy trình sửa đổi thất bại, gửi theo request gốc', summary);
+        logError('Quy trình chỉnh sửa thất bại, gửi theo request gốc', summary);
         return;
     }
     if (summary.decision === 'ambiguous-payload') {
-        logWarn('Request body có sự mơ hồ, không sửa đổi', summary);
+        logWarn('Request body có sự không rõ ràng/nhập nhằng, chưa chỉnh sửa', summary);
         return;
     }
-    logDebug('Chưa sửa đổi request', summary);
+    logDebug('Không chỉnh sửa request', summary);
 }
 
-/* ── Chặn Fetch Request ───────────────────── */
+/* ── Chặn Request Fetch ───────────────────── */
 
-/* Tạo một wrapper fetch; Cửa sổ chính và iframe cùng nguồn dùng chung một logic */
+/* Tạo bộ bọc fetch; cửa sổ chính và iframe cùng nguồn dùng chung bộ logic này */
 function createFetchHook(realmWindow, getOriginalFetch) {
-    /* Đặt cờ trong quá trình gọi fetch gốc: Tránh việc wrapper bị chính nó chặn lại dẫn đến đệ quy */
+    /* Đặt cờ trong thời gian gọi fetch gốc: Tránh việc wrapper tự chặn lại chính nó gây đệ quy vô hạn */
     let invokingOriginal = false;
 
     return async function hookedFetch(input, init) {
@@ -659,7 +1092,7 @@ function createFetchHook(realmWindow, getOriginalFetch) {
             plan = {
                 changed: false,
                 decision: 'modification-failed',
-                reason: 'Đã xảy ra ngoại lệ trong giai đoạn sửa đổi của plugin',
+                reason: 'Phát sinh ngoại lệ trong giai đoạn chỉnh sửa của plugin',
                 url: getFetchRequestUrl(input),
                 errorStage: 'modify',
                 errorMessage: error && error.message ? error.message : String(error),
@@ -676,7 +1109,7 @@ function createFetchHook(realmWindow, getOriginalFetch) {
         try {
             return originalFetch.apply(realmWindow, [input, plan.modifiedInit]);
         } catch (error) {
-            logError('Fetch đồng bộ sau khi sửa đổi thất bại, quay lui về request gốc', error);
+            logError('Fetch sau khi sửa đồng bộ thất bại, hoàn tác về request gốc', error);
             return originalFetch.apply(realmWindow, [input, init]);
         } finally {
             invokingOriginal = false;
@@ -684,9 +1117,9 @@ function createFetchHook(realmWindow, getOriginalFetch) {
     };
 }
 
-/* ── Chặn XHR Request ─────────────────────── */
+/* ── Chặn Request XHR ─────────────────────── */
 
-/* Phân tích địa chỉ nhận được từ open thành địa chỉ tuyệt đối theo location của chính realm đó (location của cửa sổ chính và iframe khác nhau) */
+/* Phân giải XHR URL thành địa chỉ tuyệt đối dựa trên địa chỉ của chính realm đó */
 function resolveRealmUrl(realmWindow, url) {
     const raw = (typeof url === 'string') ? url : (url != null ? String(url) : '');
     if (!raw) return '';
@@ -698,9 +1131,8 @@ function resolveRealmUrl(realmWindow, url) {
     }
 }
 
-/* Phán đoán đồng bộ một lần xem request body của XHR có cần bổ sung hay không (send là đồng bộ, không thể đi theo quy trình fetch async).
-   Tiêu chí giống với fetch, không phải cứ "có thể parse thành JSON" là sửa: Phương thức ghi + URL mục tiêu + Cấu trúc request body + Trúng danh sách mô hình;
-   Nếu không thỏa mãn bất kỳ bước nào thì trả về changed:false, giữ nguyên request gốc. */
+/* Lên kế hoạch sửa đổi request body của XHR một cách đồng bộ; phương thức send là đồng bộ nên không thể tái sử dụng quy trình fetch bất đồng bộ.
+   Điều kiện phán đoán tương đồng với fetch, khi không thể sửa đổi an toàn sẽ trả về changed:false */
 function planXhrBodyModification(requestUrl, method, bodyText) {
     if (!JSON_BODY_METHODS.has(method)) {
         return {
@@ -718,7 +1150,7 @@ function planXhrBodyModification(requestUrl, method, bodyText) {
         return {
             changed: false,
             decision: 'unsupported-body',
-            reason: 'Request body không phải là JSON hợp lệ',
+            reason: 'Body của request không phải là JSON hợp lệ',
             url: requestUrl,
         };
     }
@@ -727,7 +1159,7 @@ function planXhrBodyModification(requestUrl, method, bodyText) {
         return {
             changed: false,
             decision: 'unsupported-body',
-            reason: 'Cấp cao nhất của request body JSON không phải là đối tượng thông thường',
+            reason: 'Tầng cao nhất của JSON request body không phải là plain object',
             url: requestUrl,
         };
     }
@@ -748,10 +1180,8 @@ function planXhrBodyModification(requestUrl, method, bodyText) {
     };
 }
 
-/* Cài đặt wrapper XHR cho một realm duy nhất (Cửa sổ chính và iframe cùng nguồn dùng chung): open ghi lại phương thức và địa chỉ (Địa chỉ tương đối được phân tích thành tuyệt đối theo
-   location của chính realm đó); send phán đoán đồng bộ bên trong, nếu cần bổ sung thì dùng văn bản đã sửa gọi send gốc, ngược lại giữ nguyên tham số gốc.
-   Cùng một realm chỉ cài đặt một lần: Đã cài đặt và phương thức prototype chưa bị thay thế thì bỏ qua; Bọc lại khi iframe reload hoặc script bên trong thay thế prototype.
-   Gửi theo request gốc khi bản thân logic bảo vệ có ngoại lệ; Giữ nguyên hành vi ngoại lệ gốc, không gửi lại khi bản thân send gốc ném lỗi. */
+/* Cài đặt bộ bọc XHR cho một realm đơn lẻ: open ghi nhận thông tin request, send phán đoán đồng bộ và thay thế body khi cần.
+   Mỗi realm chỉ cài đặt một lần; cho phép đóng gói lại sau khi prototype bị thay thế, logic bảo vệ lỗi sẽ cho phép request gốc đi qua */
 function installRealmXhrHook(realmWindow) {
     if (!realmWindow) return false;
 
@@ -777,7 +1207,7 @@ function installRealmXhrHook(realmWindow) {
                 url: resolveRealmUrl(realmWindow, url),
             });
         } catch (error) {
-            /* Catch thất bại không ảnh hưởng đến việc gọi open gốc */
+            /* Bắt lỗi thất bại không ảnh hưởng đến lệnh gọi open gốc */
         }
         return originalOpen.apply(this, arguments);
     };
@@ -785,23 +1215,23 @@ function installRealmXhrHook(realmWindow) {
     const hookedSend = function hookedXhrSend(body) {
         if (!ENABLED) return originalSend.apply(this, arguments);
 
-        /* string|null: Văn bản request sau khi thay thế khi cần bổ sung; Giữ null nghĩa là gửi theo tham số gốc */
+        /* Nội dung request khi cần chỉnh sửa; null biểu thị gửi theo tham số gốc */
         let modifiedBodyText = null;
         let meta = null;
         try {
             meta = xhrOpenMeta.get(this);
-            /* Chỉ xử lý body chuỗi: Blob, FormData, ArrayBuffer, v.v. không thể ghi lại an toàn, cho qua nguyên trạng */
+            /* Chỉ xử lý body dạng chuỗi: Blob, FormData, ArrayBuffer không thể viết lại an toàn, cho phép gửi nguyên bản */
             if (typeof body === 'string' && body && meta && JSON_BODY_METHODS.has(meta.method)) {
                 const plan = planXhrBodyModification(meta.url, meta.method, body);
                 recordDecision(plan);
                 if (plan.changed) modifiedBodyText = plan.fixedBodyText;
             }
         } catch (error) {
-            /* Bản thân logic bảo vệ có ngoại lệ: Từ bỏ sửa đổi, gửi nguyên trạng (không gửi lại lặp lại) */
+            /* Ngoại lệ bên trong logic bảo vệ: Hủy chỉnh sửa, gửi nguyên gốc (không gửi lặp lại) */
             recordDecision({
                 changed: false,
                 decision: 'modification-failed',
-                reason: 'Đã xảy ra ngoại lệ trong giai đoạn sửa đổi của plugin',
+                reason: 'Phát sinh ngoại lệ trong giai đoạn chỉnh sửa của plugin',
                 url: meta ? meta.url : '',
                 errorStage: 'modify',
                 errorMessage: error && error.message ? error.message : String(error),
@@ -809,7 +1239,7 @@ function installRealmXhrHook(realmWindow) {
         }
 
         if (modifiedBodyText === null) return originalSend.apply(this, arguments);
-        /* Gửi bằng văn bản đã sửa; Giữ nguyên hành vi ngoại lệ gốc, không gửi lại khi bản thân send gốc ném lỗi */
+        /* Sử dụng văn bản đã sửa để gửi; khi send gốc ném ra ngoại lệ thì giữ nguyên ngoại lệ gốc, không gửi lại */
         return originalSend.call(this, modifiedBodyText);
     };
 
@@ -823,14 +1253,14 @@ function installRealmXhrHook(realmWindow) {
     return true;
 }
 
-/* Thống kê số lượng realm đã cài đặt wrapper XHR (Cửa sổ chính + iframe cùng nguồn, dùng cho giao diện debug) */
+/* Thống kê số lượng realm đã cài đặt bộ bọc XHR (cửa sổ chính + iframe cùng nguồn, dùng cho giao diện debug) */
 function countXhrHookedRealms() {
     let count = hookedXhrProtos.has(window) ? 1 : 0;
     document.querySelectorAll('iframe').forEach((frame) => {
         try {
             if (frame.contentWindow && hookedXhrProtos.has(frame.contentWindow)) count++;
         } catch (error) {
-            /* Bỏ qua iframe cross-origin */
+            /* Bỏ qua iframe khác domain (cross-origin) */
         }
     });
     return count;
@@ -838,7 +1268,7 @@ function countXhrHookedRealms() {
 
 /* ── Cài đặt Hook ────────────────────────── */
 
-/* Cài đặt chặn request cửa sổ chính (fetch + XHR): Cả hai bộ bọc (wrapper) luôn được cài đặt */
+/* Cài đặt bộ chặn request cho cửa sổ chính (fetch + XHR): Cả hai bộ bọc luôn được cài đặt */
 function installMainRequestHooks() {
     if (mainHookInstalled) return;
 
@@ -855,10 +1285,10 @@ function installMainRequestHooks() {
     hookedWindows.add(window);
     mainHookInstalled = true;
 
-    logInfo('Đã cài đặt chặn request cửa sổ chính (fetch + XHR)');
+    logInfo('Đã cài đặt chặn request cho cửa sổ chính (fetch + XHR)');
 }
 
-/* Cài đặt wrapper request cho một iframe cùng nguồn duy nhất (fetch + XHR) */
+/* Cài đặt bộ bọc request cho một iframe cùng nguồn đơn lẻ (fetch + XHR) */
 function hookIframeRequests(iframe) {
     if (!iframe) return false;
 
@@ -874,11 +1304,11 @@ function hookIframeRequests(iframe) {
     try {
         void iframeWindow.document;
     } catch (error) {
-        logWarn('Không thể đọc iframe cross-origin, đã bỏ qua', iframe.src || '');
+        logWarn('Không thể đọc iframe khác domain (cross-origin), đã bỏ qua', iframe.src || '');
         return false;
     }
 
-    /* Wrapper fetch: Đã cài đặt và chưa bị thay thế thì bỏ qua, tránh phá vỡ chuỗi bọc (wrapper chain) của realm đó */
+    /* Bộ bọc fetch: Nếu đã cài và chưa bị thay thế thì bỏ qua, tránh phá vỡ chuỗi bọc của realm đó */
     let fetchReady = false;
     const existingHook = hookedFetchHooks.get(iframeWindow);
     if (existingHook && iframeWindow.fetch === existingHook) {
@@ -891,7 +1321,7 @@ function hookIframeRequests(iframe) {
         fetchReady = true;
     }
 
-    /* Wrapper XHR: Cùng một realm chỉ cài đặt một lần, đã cài đặt và chưa bị thay thế thì bỏ qua */
+    /* Bộ bọc XHR: Cùng một realm chỉ cài một lần, nếu đã cài và chưa bị thay thế thì bỏ qua */
     const xhrReady = installRealmXhrHook(iframeWindow);
     if (!fetchReady && !xhrReady) return false;
 
@@ -905,11 +1335,11 @@ function hookIframeRequests(iframe) {
         iframe.addEventListener('load', () => hookIframeRequests(iframe));
     }
 
-    logInfo('Đã cài đặt chặn request iframe cùng nguồn (fetch + XHR)', iframe.src || iframe.id || '');
+    logInfo('Đã cài đặt chặn request cho iframe cùng nguồn (fetch + XHR)', iframe.src || iframe.id || '');
     return true;
 }
 
-/* Cài đặt hook request iframe (fetch + XHR): Quét ban đầu + Lắng nghe động */
+/* Cài đặt hook request cho iframe (fetch + XHR): Quét ban đầu + Lắng nghe động */
 function installIframeRequestHooks() {
     if (iframeHooksInstalled) return;
     iframeHooksInstalled = true;
@@ -937,14 +1367,25 @@ function installIframeRequestHooks() {
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
 
-    logInfo(`Đã quét xong hook request iframe (fetch + XHR, ban đầu ${hookedCount}/${scannedCount} cái)`);
+    logInfo(`Quét hook request iframe hoàn tất (fetch + XHR, ban đầu ${hookedCount}/${scannedCount} iframe)`);
 }
 
-/* ── Giao diện debug ─────────────────────────── */
+/* ── Giao diện Debug ─────────────────────────── */
 
 window.__PrefillCompatFix = {
     inspect: inspectRequestBody,
     getLastDecision: () => lastDecision,
+    getModelList: () => ({
+        effective: getEffectiveModelPatterns(),
+        builtin: MODEL_PATTERNS.slice(),
+        stored: getModelListStored(),
+    }),
+    /* Dùng cho kiểm thử: Làm sạch đoạn text "mỗi dòng một mục" theo quy trình chuẩn và ghi vào cài đặt */
+    applyModelListText: (text) => {
+        const info = normalizeModelListInput(text);
+        const saved = saveModelListSettings(info.lines);
+        return { lines: info.lines, fixes: info.fixes, issues: info.issues, saved };
+    },
     getHookCount: () => ({
         main: mainHookInstalled ? 1 : 0,
         iframes: iframeHookCount,
@@ -955,7 +1396,7 @@ window.__PrefillCompatFix = {
 
 /* ── Khởi tạo ───────────────────────────── */
 
-/* Đọc context ST; Trả về null khi chưa sẵn sàng */
+/* Đọc ST context; khi chưa sẵn sàng sẽ trả về null */
 function getStContext() {
     try {
         if (!window.SillyTavern || typeof window.SillyTavern.getContext !== 'function') {
@@ -967,14 +1408,36 @@ function getStContext() {
     }
 }
 
-/* Cài đặt tất cả hook (Gọi lặp lại an toàn) */
+/* Cài đặt toàn bộ hook (an toàn khi gọi lặp lại) */
 function installAllHooks() {
     installMainRequestHooks();
     installIframeRequestHooks();
+    installModelListLinkWithRetry();
     logStartupOnce();
 }
 
-/* Chờ ST sẵn sàng (APP_READY) rồi mới cài đặt, cố gắng xếp sau các extension khác; Khi đã bỏ lỡ thì dùng độ trễ cài đặt dự phòng */
+/* Chèn link cài đặt: Giao diện ST hoặc thứ tự tải extension có thể hơi muộn, đi kèm thử lại + quan sát dự phòng */
+function installModelListLinkWithRetry() {
+    if (installModelListLink()) return;
+
+    let attempts = 0;
+    const timer = setInterval(() => {
+        attempts += 1;
+        if (installModelListLink() || attempts >= 20) {
+            clearInterval(timer);
+        }
+    }, 500);
+
+    /* Nếu vẫn chưa chèn được, dùng observer đợi dòng mục tiêu xuất hiện (ví dụ: theme tùy chỉnh hoặc thay đổi DOM sau đó) */
+    const observer = new MutationObserver(() => {
+        if (installModelListLink()) {
+            observer.disconnect();
+        }
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+}
+
+/* Đợi ST sẵn sàng (APP_READY) rồi mới cài đặt, cố gắng xếp sau các extension khác; nếu đã bỏ lỡ thì dùng độ trễ dự phòng để cài */
 function scheduleHookInstall() {
     const context = getStContext();
     const eventSource = context && context.eventSource;
@@ -985,12 +1448,12 @@ function scheduleHookInstall() {
             setTimeout(installAllHooks, 0);
         });
         setTimeout(installAllHooks, APP_READY_FALLBACK_MS);
-        logInfo('Đang chờ APP_READY để cài đặt chặn request (fetch + XHR)');
+        logInfo('Chờ APP_READY rồi mới cài đặt chặn request (fetch + XHR)');
         return;
     }
 
     setTimeout(installAllHooks, APP_READY_FALLBACK_MS);
-    logInfo('Context ST tạm thời không khả dụng, sử dụng thời điểm dự phòng để cài đặt chặn request (fetch + XHR)');
+    logInfo('Context của ST tạm thời chưa khả dụng, sử dụng thời điểm dự phòng để cài đặt chặn request (fetch + XHR)');
 }
 
 scheduleHookInstall();

@@ -3,8 +3,8 @@
     "loading_order": 1000,
     "js": "index.js",
     "author": "akira",
-    "version": "1.1.0",
-    "debug_info": "Đổi DEBUG_LOGS thành true ở đầu file index.js để bật nhật ký debug.",
+    "version": "1.2.0",
+    "debug_info": "Đổi DEBUG_LOGS ở đầu index.js thành true để bật log debug.",
     "repository": "https://github.com/Despolca/PrefillCompatFix",
-    "description": "Khắc phục lỗi 400 do một số mô hình không hỗ trợ prefill gây ra, tự động thêm tin nhắn người dùng bằng dấu cách vào cuối yêu cầu."
+    "description": "Khắc phục lỗi 400 do một số model không hỗ trợ prefill gây ra, tự động nối thêm tin nhắn user chứa dấu cách vào cuối request."
 }

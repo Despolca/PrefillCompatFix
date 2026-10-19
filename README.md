@@ -1,30 +1,36 @@
-# Bản vá tương thích Prefill (PrefillCompatFix)
+# Bản Vá Tương Thích Prefill (PrefillCompatFix)
 
-Khắc phục lỗi `error 400: Requests ending with a model turn are not supported.` trong SillyTavern do mô hình không hỗ trợ prefill, giúp yêu cầu có thể được gửi đi bình thường.
+Khắc phục lỗi `error 400: Requests ending with a model turn are not supported.` trong SillyTavern phát sinh do model không hỗ trợ prefill, giúp request có thể gửi đi bình thường.
 
-Hỗ trợ các yêu cầu gốc của ST và yêu cầu từ plugin bên thứ ba (không đảm bảo plugin bao phủ 100%).
+Hỗ trợ cả request gốc của ST lẫn request từ plugin bên thứ ba (không đảm bảo plugin được hỗ trợ 100%).
 
 ## Nguyên lý hoạt động
 
-Tự động kiểm tra nội dung yêu cầu trước khi gửi. Nếu **mô hình được sử dụng nằm trong danh sách**, và **tin nhắn cuối cùng không phải là `user`**, thì sẽ âm thầm thêm một tin nhắn người dùng chỉ chứa một dấu cách vào cuối yêu cầu.
+Tự động kiểm tra nội dung request trước khi gửi. Nếu **model đang sử dụng nằm trong danh sách** và **tin nhắn cuối cùng không phải là `user`**, extension sẽ âm thầm chèn thêm một tin nhắn user chỉ chứa duy nhất một dấu cách vào cuối request.
 
-Chỉ xử lý các yêu cầu có mô hình nằm trong danh sách và đáp ứng điều kiện, các yêu cầu còn lại sẽ không bị sửa đổi.
+Chỉ xử lý các request thỏa điều kiện và có model nằm trong danh sách, các request còn lại sẽ được giữ nguyên không chỉnh sửa.
 
-Khi khắc phục không thành công, yêu cầu gốc vẫn sẽ tiếp tục được gửi đi, plugin sẽ không chặn yêu cầu. Nếu gặp phải số ít trường hợp vẫn trả về lỗi sau khi sử dụng, vui lòng kiểm tra thủ công role ở cuối.
+Nếu sửa lỗi không thành công, request gốc vẫn sẽ tiếp tục được gửi đi, plugin tuyệt đối không chặn request. Trường hợp hiếm hoi vẫn gặp lỗi sau khi áp dụng, vui lòng kiểm tra lại role ở cuối theo cách thủ công.
 
 ## Cài đặt và sử dụng
 
-Sử dụng liên kết bên dưới để cài đặt và tải lại trang, đảm bảo plugin này đang ở trạng thái kích hoạt trong quản lý tiện ích mở rộng của ST.
+Cài đặt bằng liên kết bên dưới rồi làm mới lại trang ST:
 
 `https://github.com/Despolca/PrefillCompatFix`
 
-Plugin không có bảng cấu hình trực quan, không cần cấu hình thêm. Nếu cần bật/tắt, vui lòng thao tác trong quản lý tiện ích mở rộng của ST.
+### Tùy chỉnh danh sách model áp dụng
+
+Mở **Bảng điều khiển kết nối API** (biểu tượng phích cắm) của ST, kéo xuống dưới cùng tìm "Vá lỗi tương thích Prefill" (nằm ở bên phải mục "Xem API key bị ẩn", trên giao diện mobile có thể nằm ở dòng tiếp theo), click vào để mở bảng cài đặt.
+
+- Có thể tự do thêm hoặc xoá model. Sau khi lưu sẽ có hiệu lực ngay lập tức mà không cần làm mới trang.
+- Mỗi dòng điền một tên model, lưu ý tên phải khớp chính xác với mã model thực tế.
+- Khi plugin cập nhật danh sách model tích hợp sẵn, danh sách sẽ được đồng bộ cập nhật; các model mà người dùng đã chủ động xoá thủ công sẽ không tự động khôi phục lại.
 
 ### Chế độ Debug
 
-Đặt `DEBUG_LOGS` ở đầu file `index.js` thành `true` để bật chế độ debug. Console sẽ xuất ra thông tin debug chi tiết hơn.
+Đặt biến `DEBUG_LOGS` ở đầu file `index.js` thành `true` để bật chế độ debug. Console sẽ xuất ra thông tin debug chi tiết hơn.
 
-## Danh sách mô hình tích hợp sẵn
+## Danh sách model tích hợp sẵn
 
 ### Google Gemini
 
@@ -48,23 +54,19 @@ Plugin không có bảng cấu hình trực quan, không cần cấu hình thêm
 - `claude-fable-5`
 - `claude-fable-5-1`
 
-### Chỉnh sửa danh sách mô hình
-
-Nếu phát hiện các mô hình khác mà nhà phát hành tuyên bố rõ ràng là không hỗ trợ prefill, có thể báo cho tôi để cập nhật, hoặc tự thêm vào.
-
-Vào thư mục `SillyTavern/public/scripts/extensions/third-party/PrefillCompatFix/index.js`, tìm `MODEL_PATTERNS` ở trên cùng và thêm mô hình tương ứng vào danh sách.
-
-Khi thêm vui lòng chú ý định dạng code, tên mô hình vui lòng điền theo thực tế, chú ý cách viết số và dấu gạch nối.
-
 ## Nhật ký cập nhật
+
+### [v1.2.0] - 2026-10-18
+
+- Thêm lối tắt cài đặt danh sách model, có thể tùy chỉnh trực tiếp các model áp dụng ngay trong ST.
 
 ### [v1.1.0] - 2026-10-14
 
-- Bổ sung `gemini-4-argon` vào danh sách model tích hợp.
+- Bổ sung `gemini-4-argon` vào danh sách model tích hợp sẵn.
 
 ### [v1.0.0] - 2026-10-11
 
 - Phát hành lần đầu.
-- Hỗ trợ tự động thêm tin nhắn người dùng bằng dấu cách vào cuối các yêu cầu đủ điều kiện, khắc phục vấn đề tương thích ở cuối yêu cầu của một số mô hình.
-- Hỗ trợ các yêu cầu trong trang chính và iframe cùng nguồn, bao gồm các yêu cầu được gửi thông qua `fetch`, XHR và jQuery `$.ajax`.
-- Tích hợp sẵn danh sách các mô hình dòng Gemini và Claude.
+- Hỗ trợ tự động thêm tin nhắn user chứa dấu cách vào cuối các request đủ điều kiện, khắc phục vấn đề tương thích ở lượt kết thúc request của một số model.
+- Hỗ trợ các request trên trang chính lẫn trong iframe cùng nguồn (same-origin iframe), bao gồm cả các request được gửi qua `fetch`, XHR và jQuery `$.ajax`.
+- Tích hợp sẵn danh sách các dòng model Gemini và Claude.
