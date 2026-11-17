@@ -1,34 +1,35 @@
-# Bản Vá Tương Thích Prefill (PrefillCompatFix)
+# Sửa lỗi tương thích Prefill (PrefillCompatFix)
 
-Khắc phục lỗi `error 400: Requests ending with a model turn are not supported.` trong SillyTavern phát sinh do model không hỗ trợ prefill, giúp request có thể gửi đi bình thường.
+Khắc phục lỗi `error 400: Requests ending with a model turn are not supported.` trong SillyTavern do model không hỗ trợ prefill, giúp gửi request bình thường.
 
-Hỗ trợ cả request gốc của ST lẫn request từ plugin bên thứ ba (không đảm bảo plugin được hỗ trợ 100%).
+Hỗ trợ cả request gốc của ST lẫn request từ plugin bên thứ ba (không đảm bảo bao phủ 100% plugin bên thứ ba).
 
-## Nguyên lý hoạt động
+## Cơ chế hoạt động
 
-Tự động kiểm tra nội dung request trước khi gửi. Nếu **model đang sử dụng nằm trong danh sách** và **tin nhắn cuối cùng không phải là `user`**, extension sẽ âm thầm chèn thêm một tin nhắn user chỉ chứa duy nhất một dấu cách vào cuối request.
+Tự động kiểm tra nội dung trước khi gửi request. Nếu **model đang dùng nằm trong danh sách áp dụng** và **role của tin nhắn cuối cùng không phải `user`**, plugin sẽ âm thầm nối thêm một tin nhắn user vào cuối request (mặc định là zero-width space, có thể tùy chỉnh trong phần cài đặt).
 
-Chỉ xử lý các request thỏa điều kiện và có model nằm trong danh sách, các request còn lại sẽ được giữ nguyên không chỉnh sửa.
+Plugin chỉ xử lý các request nằm trong danh sách và thỏa mãn điều kiện trên; mọi request còn lại đều giữ nguyên, không chỉnh sửa. Nếu quá trình khắc phục không thành công, request vẫn sẽ tiếp tục được gửi đi như ban đầu, plugin không làm gián đoạn luồng gửi.
 
-Nếu sửa lỗi không thành công, request gốc vẫn sẽ tiếp tục được gửi đi, plugin tuyệt đối không chặn request. Trường hợp hiếm hoi vẫn gặp lỗi sau khi áp dụng, vui lòng kiểm tra lại role ở cuối theo cách thủ công.
+> **Lưu ý:** `Error 400` (Bad Request) có thể xuất phát từ nhiều nguyên nhân (như vượt quá giới hạn context, sai tham số API, tin nhắn rỗng, v.v.). Plugin này **chỉ xử lý lỗi 400 gây ra bởi nguyên nhân cụ thể là "role ở cuối request không phải user (prefill)"**, không bao gồm các loại lỗi 400 khác. Nếu vẫn gặp lỗi sau khi bật plugin, vui lòng kiểm tra thêm thông tin trong Console để rà soát role cuối cùng hoặc các thiết lập tham số khác.
 
 ## Cài đặt và sử dụng
 
-Cài đặt bằng liên kết bên dưới rồi làm mới lại trang ST:
+Sao chép đường dẫn bên dưới, dán vào mục "Extensions" - "Install Extension" (Tiện ích mở rộng - Cài đặt tiện ích mở rộng) trong ST để cài đặt, sau đó tải lại trang là xong:
 
 `https://github.com/Despolca/PrefillCompatFix`
 
-### Tùy chỉnh danh sách model áp dụng
+### Cài đặt plugin
 
-Mở **Bảng điều khiển kết nối API** (biểu tượng phích cắm) của ST, kéo xuống dưới cùng tìm "Vá lỗi tương thích Prefill" (nằm ở bên phải mục "Xem API key bị ẩn", trên giao diện mobile có thể nằm ở dòng tiếp theo), click vào để mở bảng cài đặt.
+Mở bảng **API Connections** (biểu tượng phích cắm) trong ST, kéo xuống dưới cùng để tìm "Sửa lỗi tương thích Prefill" (nằm bên phải mục "Xem API key bị ẩn" / "Show Hidden API Keys", trên thiết bị di động có thể nằm ở dòng dưới), nhấn vào để mở bảng cài đặt.
 
-- Có thể tự do thêm hoặc xoá model. Sau khi lưu sẽ có hiệu lực ngay lập tức mà không cần làm mới trang.
-- Mỗi dòng điền một tên model, lưu ý tên phải khớp chính xác với mã model thực tế.
-- Khi plugin cập nhật danh sách model tích hợp sẵn, danh sách sẽ được đồng bộ cập nhật; các model mà người dùng đã chủ động xoá thủ công sẽ không tự động khôi phục lại.
+- **Tùy chỉnh danh sách model áp dụng**: Có thể tự thêm hoặc xóa model, mỗi dòng điền một model (cần khớp với model ID thực tế). Có hiệu lực ngay sau khi lưu mà không cần tải lại trang.
+- **Cơ chế đồng bộ danh sách**: Khi plugin cập nhật danh sách model tích hợp sẵn, danh sách sẽ tự động đồng bộ và hiển thị thông báo trên trang; những model bạn đã xóa thủ công sẽ vẫn giữ trạng thái tắt và không tự động khôi phục.
+- **Tùy chỉnh nội dung bổ sung**: Mặc định sử dụng zero-width space. Nếu gặp trường hợp bị plugin khác lọc mất hoặc có giới hạn đặc biệt từ phía upstream, bạn có thể tích chọn và tự tùy chỉnh nội dung tin nhắn nối thêm.
 
-### Chế độ Debug
+### Dọn dẹp dữ liệu và Debug
 
-Đặt biến `DEBUG_LOGS` ở đầu file `index.js` thành `true` để bật chế độ debug. Console sẽ xuất ra thông tin debug chi tiết hơn.
+- **Dọn dẹp dữ liệu**: Cài đặt của plugin được lưu trong `extensionSettings.PrefillCompatFix`. Từ SillyTavern 1.18.0 trở lên, bạn có thể dùng trực tiếp tùy chọn "Clean extension data" (Dọn dẹp dữ liệu extension) ngay trong giao diện quản lý extension, hoặc tích chọn "Also clean extension data" (Đồng thời dọn dẹp dữ liệu extension) khi gỡ cài đặt plugin.
+- **Chế độ Debug**: Chỉnh giá trị `DEBUG_LOGS` ở đầu file `index.js` trong thư mục plugin thành `true` để bật chế độ debug; Console của trình duyệt sẽ xuất ra thông tin chi tiết về quá trình chặn và xử lý request.
 
 ## Danh sách model tích hợp sẵn
 
@@ -39,6 +40,8 @@ Mở **Bảng điều khiển kết nối API** (biểu tượng phích cắm) c
 - `gemini-3.7-flash`
 - `gemini-3.8-flash`
 - `gemini-4-argon`
+- `gemini-4-carbon`
+- `gemini-4-hydrogen`
 
 ### Anthropic Claude
 
@@ -53,20 +56,28 @@ Mở **Bảng điều khiển kết nối API** (biểu tượng phích cắm) c
 - `claude-haiku-5-5`
 - `claude-fable-5`
 - `claude-fable-5-1`
+- `claude-fable-5-2`
 
 ## Nhật ký cập nhật
 
+### [v1.3.0] - 2026-11-17
+
+- Thêm cài đặt "Tùy chỉnh nội dung tin nhắn bổ sung"; đổi nội dung bổ sung mặc định từ dấu cách thông thường sang zero-width space, giúp giảm khả năng bị các plugin khác xóa nhầm.
+- Thêm `gemini-4-carbon`, `gemini-4-hydrogen`, `claude-fable-5-2` vào danh sách model tích hợp sẵn; các lần cập nhật danh sách về sau sẽ hiển thị popup thông báo các mục thay đổi.
+- Hỗ trợ tính năng dọn dẹp dữ liệu extension của ST 1.18.0.
+- Tối ưu logic chặn request ở tầng thấp và phân tích body, nâng cao độ tương thích và ổn định với nhiều định dạng dữ liệu khác nhau.
+
 ### [v1.2.0] - 2026-10-18
 
-- Thêm lối tắt cài đặt danh sách model, có thể tùy chỉnh trực tiếp các model áp dụng ngay trong ST.
+- Thêm mục cài đặt danh sách model, cho phép tùy chỉnh trực tiếp các model áp dụng ngay trong ST.
 
 ### [v1.1.0] - 2026-10-14
 
-- Bổ sung `gemini-4-argon` vào danh sách model tích hợp sẵn.
+- Thêm `gemini-4-argon` vào danh sách model tích hợp sẵn.
 
 ### [v1.0.0] - 2026-10-11
 
 - Phát hành lần đầu.
-- Hỗ trợ tự động thêm tin nhắn user chứa dấu cách vào cuối các request đủ điều kiện, khắc phục vấn đề tương thích ở lượt kết thúc request của một số model.
-- Hỗ trợ các request trên trang chính lẫn trong iframe cùng nguồn (same-origin iframe), bao gồm cả các request được gửi qua `fetch`, XHR và jQuery `$.ajax`.
-- Tích hợp sẵn danh sách các dòng model Gemini và Claude.
+- Hỗ trợ tự động nối thêm tin nhắn user chứa dấu cách vào cuối các request thỏa mãn điều kiện, khắc phục vấn đề tương thích phần cuối request trên một số model.
+- Hỗ trợ các request trên trang chính và trong iframe cùng nguồn (same-origin), bao gồm các request gửi qua `fetch`, XHR và jQuery `$.ajax`, v.v.
+- Tích hợp sẵn danh sách các model dòng Gemini và Claude.
